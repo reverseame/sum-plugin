@@ -10,12 +10,29 @@ A Similarity Digest Algorithm (also known as approximate matching algorithm) ide
 
 At the moment of this writing, the algorithms included in this plugin are `ssdeep`, `SDhash`, and `TLSH`
 
+The de-relocation methods implemented here (Guided and Linear Sweep De-relocation) are
+described in our paper, published in *Computers & Security* (see [Reference](#reference)):
+[Pre-processing memory dumps to improve similarity score of Windows modules](https://www.sciencedirect.com/science/article/pii/S0167404820303928).
+
 ## Installation
 
-You can clone `sum-plugin` with its depecencise with:\
+You can clone `sum-plugin` with its dependencies with:\
 `git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/reverseame/sum-plugin.git`
 
 You can install all dependencies with [installdeps.sh](installdeps.sh).
+
+### Docker
+
+A reference [Dockerfile](Dockerfile) is provided that builds a self-contained
+Volatility 2.6 / Python 2.7 environment with every dependency the plugin needs
+(`ssdeep`, `fuzzyhashlib`, `capstone`, `pefile`, ...):
+
+```
+docker build -t sum-vol2 -f Dockerfile .
+docker run --rm -it -v "$PWD":/plugin -v /path/to/dumps:/shared sum-vol2
+# inside the container ('vol2' is an alias for Volatility 2):
+vol2 --plugins=/plugin --profile=WinXPSP2x86 -f /shared/memory.dump sumplugin -p 252 -A tlsh
+```
 
 ## Usage
 
@@ -29,13 +46,13 @@ Options:
         (-p 252 | -p 252,452,2852)
 
     -n REGEX, --name REGEX: Process expression. Will hash processes that contain REGEX.
-        (-E svchost | -E winlogon,explorer)
+        (-n svchost | -n winlogon,explorer)
         
     -r REGEX, --module-name REGEX: Module expression. Will hash modules that contain REGEX.
-        (-D ntdll | -D kernel,advapi)
+        (-r ntdll | -r kernel,advapi)
 
-    -A: Algorithm to use. Available: ssdeep, sdhash, tlsh, dcfldd. Default: ssdeep
-        (-A ssdeep | -A SSDeep | -A SSDEEP,sdHash,TLSH,dcfldd)
+    -A: Algorithm to use. Available: ssdeep, sdhash, tlsh. Default: tlsh
+        (-A ssdeep | -A SSDeep | -A ssdeep,sdHash,TLSH)
 
     -S: Section to hash
         PE section (-S .text | -S .data,.rsrc)
@@ -72,21 +89,44 @@ Note:
     - Params -c and -C can be given multiple times (E.g. vol.py (...) -c <hash1> -c <hash2>)
 
 ```
-You need to provide the path to the plugin as [first parameter to Volatility](https://github.com/volatilityfoundation/volatility/wiki/Volatility-Usage#specifying-additional-plugin-directories):
+You need to provide the path to the plugin with the [`--plugins` option of Volatility](https://github.com/volatilityfoundation/volatility/wiki/Volatility-Usage#specifying-additional-plugin-directories).
+Point it at the cloned `sum-plugin` directory. Note that Volatility registers the
+command as `sumplugin` (after the `SumPlugin` class):
 
 ```
-vol.py --plugins /path/to/sum  --profile WinProfile --f /path/to/memory.dump sum 
+vol.py --plugins /path/to/sum-plugin --profile WinProfile -f /path/to/memory.dump sumplugin
 Volatility Foundation Volatility Framework 2.6.1
-Process                   Pid  PPid Create Time                  Module Base Module End Module Name                       File Version   Product Version Section            Section Offset Section Size Algorithm Generated Hash                                                                                       Path                                           Num Page Num Valid Page
-------------------------- ---- ---- ---------------------------- ----------- ---------- --------------------------------- -------------- --------------- ------------------ -------------- ------------ --------- ---------------------------------------------------------------------------------------------------- ---------------------------------------------- -------- --------------
-smss.exe                   216    4 1537396716                    0x482e0000 0x482f3000 smss.exe                                                         PE                            0x0      0x13000 SSDeep    6:idquvVg3F+X32kGjSW8c3ge7+vcjelik+gSX+2C6aAat5GX...2amkKYl9l7zsYcf6Zjw:VCOvB3lL9Ip8RpJlIr7vl7vQ;*;* \SystemRoot\System32\smss.exe                  19       17            
-smss.exe                   216    4 1537396716                    0x77620000 0x7775c000 ntdll.dll                                                        PE                            0x0     0x13c000 SSDeep    12:ev1GSGAqLM+dNlslQ+JNlJHElKL//coclzC4oa12O:ev1G...;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;* C:\Windows\SYSTEM32\ntdll.dll                  316      112           
-csrss.exe                  288  280 1537396719                    0x49950000 0x49955000 csrss.exe                         6.1.7600.16385 6.1.7600.16385  PE                            0x0       0x5000 SSDeep    6:idquvVg3F+X322XJZI3w8ERM9+4tav/2ro/uK4/hGIvBj:e...LF+bT4UBstQIZWWIqV955WwaO0E:PDJvkM/HHEW5s9nWw3;* C:\Windows\system32\csrss.exe                  5        4             
-csrss.exe                  288  280 1537396719                    0x77620000 0x7775c000 ntdll.dll                                                        PE                            0x0     0x13c000 SSDeep    12:ev1GSGAqLM+dNlslQ+JNlJHElKL//coclzC4oa12O:ev1G...;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;*;* C:\Windows\SYSTEM32\ntdll.dll                  316      102           
+Process   Pid PPid Create Time Module Base Module End Module Name Wow64 ... Section Section Size Algorithm Pre-process Generated Hash                          Path                        Num Page Num Valid Page
+--------- --- ---- ----------- ----------- ---------- ----------- ----- --- ------- ------------ --------- ----------- --------------------------------------- --------------------------- -------- --------------
+alg.exe   216  676 1281506799   0x1000000  0x100d000  alg.exe         0 ... PE          0xd000      TLSH      Raw         07814627B36AAF76...1B4EEE75A42D7106D4 C:\WINDOWS\System32\alg.exe 13       7
 
 [... redacted ...]
 ```
 
+
+## Reference
+
+This plugin is the implementation accompanying our research paper. If you use it in
+your work, please cite:
+
+> Miguel Martín-Pérez, Ricardo J. Rodríguez, Davide Balzarotti.
+> **Pre-processing memory dumps to improve similarity score of Windows modules.**
+> *Computers & Security*, Volume 101, 2021, 102119.
+> doi: [10.1016/j.cose.2020.102119](https://doi.org/10.1016/j.cose.2020.102119)
+
+```bibtex
+@article{MartinPerez2021,
+  title   = {Pre-processing memory dumps to improve similarity score of Windows modules},
+  author  = {Mart{\'\i}n-P{\'e}rez, Miguel and Rodr{\'\i}guez, Ricardo J. and Balzarotti, Davide},
+  journal = {Computers \& Security},
+  volume  = {101},
+  pages   = {102119},
+  year    = {2021},
+  issn    = {0167-4048},
+  doi     = {10.1016/j.cose.2020.102119},
+  url     = {https://www.sciencedirect.com/science/article/pii/S0167404820303928}
+}
+```
 
 ## License
 

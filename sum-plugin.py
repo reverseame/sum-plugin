@@ -77,7 +77,7 @@ class SumPlugin(AbstractWindowsCommand):
 
         Note:
           - Hashes' file given with -C must contain one hash per line.
-          - Params -c and -C can be given multiple times (E.g. vol.py (...) -c <hash1> -c <hash2>) {}""".format('hola')
+          - Params -c and -C can be given multiple times (E.g. vol.py (...) -c <hash1> -c <hash2>)"""
 
     def __init__(self, config, *args, **kwargs):
         AbstractWindowsCommand.__init__(self, config, *args, **kwargs)
@@ -144,11 +144,13 @@ class SumPlugin(AbstractWindowsCommand):
         ret = []
 
         for proc in tasks.pslist(self.addr_space):
+            mod = self.get_exe_module(proc)
+            if not mod:
+                continue
             for name in names:
-                mod = self.get_exe_module(proc)
-                if mod:
-                    if re.search(name, str(mod.BaseDllName), flags=re.IGNORECASE):
-                        ret += [proc.UniqueProcessId]
+                if re.search(name, str(mod.BaseDllName), flags=re.IGNORECASE):
+                    ret += [proc.UniqueProcessId]
+                    break
         return ret
 
     def get_exe_module(self, task):
@@ -291,16 +293,6 @@ class SumPlugin(AbstractWindowsCommand):
                         if not re.search(dlls_expression, mod_name, flags=re.IGNORECASE):
                             continue
                     valid_pages = [task_space.vtop(mod.DllBase+i) for i in range(0, mod.SizeOfImage, PAGE_SIZE)]
-                    
-                    reloc = None
-                    #pre_processing_time = None
-                    if self._config.DERELOCATION or self._config.GUIDED_DERELOCATION:
-                        # Retrieving reloc for module for text section
-                        reloc = get_reloc_section(self, mod)
-                        if not reloc:
-                            debug.warning('Warning: {0}\'s reloc section cannot be found.'.format(mod_name))
-                            if self._config.GUIDED_DERELOCATION:
-                                continue
 
                     vinfo = obj.Object("_IMAGE_DOS_HEADER", mod.DllBase, task_space).get_version_info()
                     create_time = str(task.CreateTime) if self._config.HUMAN_READABLE else int(
@@ -309,9 +301,9 @@ class SumPlugin(AbstractWindowsCommand):
                     reloc = None
                     derelocation = 'raw'
                     if self._config.DERELOCATION or self._config.GUIDED_DERELOCATION:
-                        # Retrieving reloc for module for text section
+                        # Retrieving the .reloc section of the module
                         reloc = get_reloc_section(self, mod)
-                        if not reloc:
+                        if reloc:
                             derelocation = 'guide'
                         else:
                             debug.warning('Warning: {0}\'s reloc section cannot be found.'.format(mod_name))
@@ -391,7 +383,7 @@ class SumPlugin(AbstractWindowsCommand):
     def render_text(self, outfd, data):
         first = True
         for item in data:
-            if self._config.json:
+            if self._config.JSON:
                 outfd.write('{0}\n'.format(item._json()))
             else:
                 if first:
@@ -407,12 +399,16 @@ def acquire_sys_file_handlers(PFH, conf):
     ''' Acquiring all dlls and exes that were opened in system
     '''
 
-    # 'scanfile' need config without processfuzzyhash parameters, deleting parameters
+    # FileScan needs a config without this plugin's own options, so we strip them
     config = conf.ConfObject()
-    for option in ['PID', 'PROC-EXPRESSION', 'PROC-NAME', 'DLL-EXPRESSION', 'ALGORITHM', 'MODE', 'SECTION',
-                   'PROTECTION', 'EXECUTABLE', 'COMPARE-HASH', 'COMPARE-FILE',
-                   'HUMAN-READABLE', 'TIME', 'STRINGS', 'TMP-FOLDER', 'NO-DEVICE', 'LIST-SECTIONS', 'JSON', ]:
-        config.remove_option(option)
+    for option in ['PID', 'NAME', 'MODULE-NAME', 'WOW64', 'ALGORITHM', 'SECTION',
+                   'COMPARE-HASH', 'COMPARE-FILE', 'HUMAN-READABLE', 'TIME', 'DUMP-DIR',
+                   'LIST-SECTIONS', 'JSON', 'GUIDED-DERELOCATION', 'LINEAR-SWEEP-DERELOCATION',
+                   'DERELOCATION', 'LOG-MEMORY-PAGES']:
+        try:
+            config.remove_option(option)
+        except (KeyError, ValueError):
+            pass
 
     # Filtering end file name
     fs = plugins.filescan.FileScan(config)
